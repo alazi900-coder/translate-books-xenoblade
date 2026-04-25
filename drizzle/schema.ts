@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, longtext, float } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -25,4 +25,39 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+// جدول الملفات المرفوعة
+export const uploadedFiles = mysqlTable("uploaded_files", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  fileName: varchar("file_name", { length: 255 }).notNull(),
+  fileType: varchar("file_type", { length: 20 }).notNull(), // epub, docx, txt, srt
+  fileSize: int("file_size").notNull(),
+  fileKey: varchar("file_key", { length: 255 }).notNull(), // S3 key
+  fileUrl: varchar("file_url", { length: 500 }).notNull(), // S3 URL
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type UploadedFile = typeof uploadedFiles.$inferSelect;
+export type InsertUploadedFile = typeof uploadedFiles.$inferInsert;
+
+// جدول الترجمات
+export const translations = mysqlTable("translations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  uploadedFileId: int("uploaded_file_id").notNull(),
+  sourceLanguage: varchar("source_language", { length: 50 }).notNull(),
+  targetLanguage: varchar("target_language", { length: 50 }).notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed", "paused"]).default("pending").notNull(),
+  progress: float("progress").default(0).notNull(), // 0-100
+  translatedFileKey: varchar("translated_file_key", { length: 255 }),
+  translatedFileUrl: varchar("translated_file_url", { length: 500 }),
+  errorMessage: text("error_message"),
+  totalChunks: int("total_chunks").default(0),
+  processedChunks: int("processed_chunks").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type Translation = typeof translations.$inferSelect;
+export type InsertTranslation = typeof translations.$inferInsert;
