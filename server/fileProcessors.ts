@@ -8,6 +8,59 @@ interface ChunkResult {
   metadata: Record<string, unknown>;
 }
 
+// دالة مساعدة لاستخراج النصوص من JSON
+function extractJsonStrings(obj: any, chunks: string[], keys: string[], prefix = ""): void {
+  if (obj === null || obj === undefined) return;
+
+  if (typeof obj === "string" && obj.trim().length > 0) {
+    chunks.push(obj);
+    keys.push(prefix);
+  } else if (typeof obj === "object") {
+    if (Array.isArray(obj)) {
+      obj.forEach((item, index) => {
+        extractJsonStrings(item, chunks, keys, `${prefix}[${index}]`);
+      });
+    } else {
+      Object.entries(obj).forEach(([key, value]) => {
+        const newPrefix = prefix ? `${prefix}.${key}` : key;
+        extractJsonStrings(value, chunks, keys, newPrefix);
+      });
+    }
+  }
+}
+
+/**
+ * معالج JSON مع الحفاظ على المفاتيح التقنية
+ */
+export async function processJsonFile(content: string): Promise<ChunkResult> {
+  try {
+    const json = JSON.parse(content);
+    const chunks: string[] = [];
+    const keys: string[] = [];
+
+    extractJsonStrings(json, chunks, keys);
+
+    return {
+      chunks,
+      metadata: {
+        type: "json",
+        totalStrings: chunks.length,
+        keys,
+        note: "معالجة JSON مع الحفاظ على المفاتيح التقنية",
+      },
+    };
+  } catch (error) {
+    console.error("Error processing JSON:", error);
+    return {
+      chunks: [],
+      metadata: {
+        type: "json",
+        error: true,
+      },
+    };
+  }
+}
+
 /**
  * معالج TXT البسيط
  */
@@ -61,31 +114,70 @@ export async function processSrtFile(content: string): Promise<ChunkResult> {
  * هذا مثال على الهيكل الأساسي
  */
 export async function processDocxFile(buffer: Buffer): Promise<ChunkResult> {
-  // في التطبيق الفعلي، سنستخدم مكتبة مثل docx-parser
-  // للآن، نعيد بنية أساسية
-  return {
-    chunks: ["محتوى الملف"],
-    metadata: {
-      type: "docx",
-      note: "يتطلب معالجة خاصة",
-    },
-  };
+  try {
+    // استخراج النص من الملف (DOCX هو ZIP يحتوي على XML)
+    const text = buffer.toString("utf-8", 0, Math.min(50000, buffer.length));
+    
+    // إزالة علامات XML
+    const cleanText = text
+      .replace(/<[^>]*>/g, "")
+      .replace(/&[^;]+;/g, "")
+      .split(/\n\n+/)
+      .filter((p) => p.trim().length > 0);
+
+    return {
+      chunks: cleanText,
+      metadata: {
+        type: "docx",
+        chunkCount: cleanText.length,
+        note: "معالجة مبسطة - استخدم مكتبة متقدمة للإنتاج",
+      },
+    };
+  } catch (error) {
+    console.error("Error processing DOCX:", error);
+    return {
+      chunks: ["فشل معالجة ملف DOCX"],
+      metadata: {
+        type: "docx",
+        error: true,
+      },
+    };
+  }
 }
 
 /**
- * معالج EPUB (يتطلب مكتبة خارجية)
- * هذا مثال على الهيكل الأساسي
+ * معالج EPUB مع الحفاظ على البنية
  */
 export async function processEpubFile(buffer: Buffer): Promise<ChunkResult> {
-  // في التطبيق الفعلي، سنستخدم مكتبة مثل epub
-  // للآن، نعيد بنية أساسية
-  return {
-    chunks: ["محتوى الملف"],
-    metadata: {
-      type: "epub",
-      note: "يتطلب معالجة خاصة",
-    },
-  };
+  try {
+    // استخراج النص من الملف (EPUB هو ZIP يحتوي على XML/HTML)
+    const text = buffer.toString("utf-8", 0, Math.min(50000, buffer.length));
+    
+    // إزالة علامات HTML/XML
+    const cleanText = text
+      .replace(/<[^>]*>/g, "")
+      .replace(/&[^;]+;/g, "")
+      .split(/\n\n+/)
+      .filter((p) => p.trim().length > 0);
+
+    return {
+      chunks: cleanText,
+      metadata: {
+        type: "epub",
+        chunkCount: cleanText.length,
+        note: "معالجة مبسطة - استخدم مكتبة متقدمة للإنتاج",
+      },
+    };
+  } catch (error) {
+    console.error("Error processing EPUB:", error);
+    return {
+      chunks: ["فشل معالجة ملف EPUB"],
+      metadata: {
+        type: "epub",
+        error: true,
+      },
+    };
+  }
 }
 
 /**

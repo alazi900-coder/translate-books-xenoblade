@@ -4,8 +4,8 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { createTranslation, getUserTranslations, getTranslationById, updateTranslation, createUploadedFile, getUserUploadedFiles } from "./db";
-import { invokeLLM } from "./_core/llm";
-import { smartChunk } from "./fileProcessors";
+    import { invokeLLM } from "./_core/llm";
+    import { smartChunk, processJsonFile } from "./fileProcessors";
 import { storagePut, storageGet } from "./storage";
 import { eq } from "drizzle-orm";
 import { translations } from "../drizzle/schema";
@@ -35,6 +35,7 @@ export const appRouter = router({
           targetLanguage: z.string(),
           fileContent: z.string(),
           fileName: z.string(),
+          fileType: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
