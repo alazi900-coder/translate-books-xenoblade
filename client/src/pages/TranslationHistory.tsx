@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Download, Trash2, Clock, CheckCircle, AlertCircle, Search } from "lucide-react";
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 
 export default function TranslationHistory() {
   const { user, isAuthenticated } = useAuth();
@@ -13,10 +14,21 @@ export default function TranslationHistory() {
   const [filterStatus, setFilterStatus] = useState<string | "all">("all");
 
   // جلب قائمة الترجمات
-  const { data: translations = [], isLoading } = trpc.translation.list.useQuery(
+  const { data: translations = [], isLoading, refetch } = trpc.translation.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
+
+  // Mutation لحذف الترجمة
+  const deleteTranslationMutation = trpc.translation.delete.useMutation({
+    onSuccess: () => {
+      toast.success("تم حذف الترجمة بنجاح");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(error.message || "فشل حذف الترجمة");
+    },
+  });
 
   // تصفية البيانات بناءً على البحث والحالة
   const filteredTranslations = useMemo(() => {
@@ -74,6 +86,12 @@ export default function TranslationHistory() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const handleDelete = (translationId: number) => {
+    if (confirm("هل أنت متأكد من حذف هذه الترجمة؟")) {
+      deleteTranslationMutation.mutate({ id: translationId });
+    }
   };
 
   if (!isAuthenticated) {
@@ -272,8 +290,9 @@ export default function TranslationHistory() {
                         className="flex-1 border-border/50 hover:bg-destructive/10 text-destructive hover:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          // حذف الترجمة
+                          handleDelete(translation.id);
                         }}
+                        disabled={deleteTranslationMutation.isPending}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

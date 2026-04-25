@@ -7,6 +7,9 @@ import { createTranslation, getUserTranslations, getTranslationById, updateTrans
 import { invokeLLM } from "./_core/llm";
 import { smartChunk } from "./fileProcessors";
 import { storagePut, storageGet } from "./storage";
+import { eq } from "drizzle-orm";
+import { translations } from "../drizzle/schema";
+import { getDb } from "./db";
 
 export const appRouter = router({
   system: systemRouter,
@@ -151,6 +154,23 @@ export const appRouter = router({
 
         const { url } = await storageGet(translation.translatedFileKey);
         return { url };
+      }),
+
+    // حذف ترجمة
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const translation = await getTranslationById(input.id);
+        if (!translation || translation.userId !== ctx.user.id) {
+          throw new Error("غير مصرح");
+        }
+
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        await db.delete(translations).where(eq(translations.id, input.id));
+
+        return { success: true };
       }),
   }),
 
