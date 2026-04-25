@@ -1,19 +1,37 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Trash2, Clock, CheckCircle, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Download, Trash2, Clock, CheckCircle, AlertCircle, Search } from "lucide-react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 
 export default function TranslationHistory() {
   const { user, isAuthenticated } = useAuth();
   const [selectedTranslation, setSelectedTranslation] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string | "all">("all");
 
   // جلب قائمة الترجمات
   const { data: translations = [], isLoading } = trpc.translation.list.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
+
+  // تصفية البيانات بناءً على البحث والحالة
+  const filteredTranslations = useMemo(() => {
+    return translations.filter((translation) => {
+      const matchesSearch =
+        searchQuery === "" ||
+        translation.sourceLanguage.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        translation.targetLanguage.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesStatus =
+        filterStatus === "all" || translation.status === filterStatus;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [translations, searchQuery, filterStatus]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -85,12 +103,75 @@ export default function TranslationHistory() {
               <h1 className="text-2xl font-bold text-foreground">سجل الترجمات</h1>
               <p className="text-sm text-muted-foreground">عرض جميع الترجمات السابقة</p>
             </div>
+            <Button
+              variant="outline"
+              className="border-border/50"
+              onClick={() => window.location.href = '/'}
+            >
+              ترجمة جديدة
+            </Button>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="container py-8">
+        {/* Search and Filter */}
+        <div className="grid md:grid-cols-2 gap-4 mb-8">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="ابحث عن اللغات..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-card border-border/50"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilterStatus("all")}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                filterStatus === "all"
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-card border border-border/50 text-foreground hover:border-accent/50"
+              }`}
+            >
+              الكل
+            </button>
+            <button
+              onClick={() => setFilterStatus("completed")}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                filterStatus === "completed"
+                  ? "bg-green-500/20 text-green-400 border border-green-500/50"
+                  : "bg-card border border-border/50 text-foreground hover:border-accent/50"
+              }`}
+            >
+              مكتمل
+            </button>
+            <button
+              onClick={() => setFilterStatus("processing")}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                filterStatus === "processing"
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
+                  : "bg-card border border-border/50 text-foreground hover:border-accent/50"
+              }`}
+            >
+              جاري
+            </button>
+            <button
+              onClick={() => setFilterStatus("failed")}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                filterStatus === "failed"
+                  ? "bg-red-500/20 text-red-400 border border-red-500/50"
+                  : "bg-card border border-border/50 text-foreground hover:border-accent/50"
+              }`}
+            >
+              فشل
+            </button>
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -98,19 +179,23 @@ export default function TranslationHistory() {
               <p className="text-muted-foreground">جاري تحميل السجل...</p>
             </div>
           </div>
-        ) : translations.length === 0 ? (
+        ) : filteredTranslations.length === 0 ? (
           <Card className="border-border/50 bg-card/50">
             <CardContent className="py-12 text-center">
               <Clock className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-semibold text-foreground mb-2">لا توجد ترجمات</p>
+              <p className="text-lg font-semibold text-foreground mb-2">
+                {searchQuery || filterStatus !== "all" ? "لا توجد نتائج" : "لا توجد ترجمات"}
+              </p>
               <p className="text-sm text-muted-foreground">
-                ابدأ بترجمة ملف جديد لعرضه هنا
+                {searchQuery || filterStatus !== "all"
+                  ? "حاول تغيير معايير البحث"
+                  : "ابدأ بترجمة ملف جديد لعرضه هنا"}
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-4">
-            {translations.map((translation) => (
+            {filteredTranslations.map((translation) => (
               <Card
                 key={translation.id}
                 className={`border-border/50 cursor-pointer transition-all hover:border-accent/50 ${
@@ -173,7 +258,9 @@ export default function TranslationHistory() {
                           className="flex-1 border-border/50 hover:bg-accent/10"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // تنزيل الملف
+                            if (translation.translatedFileUrl) {
+                              window.open(translation.translatedFileUrl, "_blank");
+                            }
                           }}
                         >
                           <Download className="w-4 h-4" />
@@ -230,6 +317,45 @@ export default function TranslationHistory() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        )}
+
+        {/* Stats */}
+        {translations.length > 0 && (
+          <div className="mt-8 grid md:grid-cols-4 gap-4">
+            <Card className="border-border/50 bg-card/50">
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground mb-1">إجمالي الترجمات</p>
+                <p className="text-2xl font-bold text-foreground">{translations.length}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 bg-card/50">
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground mb-1">مكتملة</p>
+                <p className="text-2xl font-bold text-green-400">
+                  {translations.filter((t) => t.status === "completed").length}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 bg-card/50">
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground mb-1">جاري المعالجة</p>
+                <p className="text-2xl font-bold text-blue-400">
+                  {translations.filter((t) => t.status === "processing").length}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 bg-card/50">
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground mb-1">فشلت</p>
+                <p className="text-2xl font-bold text-red-400">
+                  {translations.filter((t) => t.status === "failed").length}
+                </p>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

@@ -2,9 +2,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, FileText, Zap, History } from "lucide-react";
+import { Upload, FileText, Zap, History, AlertCircle, CheckCircle } from "lucide-react";
 import { useState, useRef } from "react";
 import { getLoginUrl } from "@/const";
+import { useTranslation } from "@/hooks/useTranslation";
 
 const SUPPORTED_LANGUAGES = [
   { code: "en", name: "English" },
@@ -49,6 +50,7 @@ export default function Home() {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isLoading, progress, status, error, translatedFileUrl, translateFile, reset } = useTranslation();
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -79,6 +81,27 @@ export default function Home() {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
     }
+  };
+
+  const handleTranslate = async () => {
+    if (!selectedFile) return;
+
+    try {
+      await translateFile(selectedFile, sourceLanguage, targetLanguage);
+    } catch (err) {
+      console.error("Translation error:", err);
+    }
+  };
+
+  const handleDownload = () => {
+    if (translatedFileUrl) {
+      window.open(translatedFileUrl, "_blank");
+    }
+  };
+
+  const handleNewTranslation = () => {
+    reset();
+    setSelectedFile(null);
   };
 
   if (!isAuthenticated) {
@@ -134,6 +157,62 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="container py-8 space-y-8">
+        {/* Translation Complete State */}
+        {status === "completed" && translatedFileUrl && (
+          <Card className="border-green-500/50 bg-green-500/5">
+            <CardContent className="py-6">
+              <div className="flex items-center gap-4">
+                <CheckCircle className="w-8 h-8 text-green-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">تمت الترجمة بنجاح!</p>
+                  <p className="text-sm text-muted-foreground">الملف جاهز للتنزيل</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="bg-green-500 hover:bg-green-600 text-white"
+                    onClick={handleDownload}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    تنزيل
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border/50"
+                    onClick={handleNewTranslation}
+                  >
+                    ترجمة جديدة
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Error State */}
+        {status === "error" && error && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-6">
+              <div className="flex items-center gap-4">
+                <AlertCircle className="w-8 h-8 text-destructive flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">حدث خطأ في الترجمة</p>
+                  <p className="text-sm text-muted-foreground">{error}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-border/50"
+                  onClick={handleNewTranslation}
+                >
+                  حاول مرة أخرى
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Upload Section */}
         <div className="grid md:grid-cols-3 gap-6">
           {/* Upload Card */}
@@ -158,7 +237,7 @@ export default function Home() {
                     dragActive
                       ? "border-accent bg-accent/5"
                       : "border-border/50 hover:border-accent/50 bg-card/50"
-                  }`}
+                  } ${isLoading ? "opacity-50 pointer-events-none" : ""}`}
                 >
                   <input
                     ref={fileInputRef}
@@ -166,6 +245,7 @@ export default function Home() {
                     className="hidden"
                     onChange={handleFileSelect}
                     accept=".epub,.docx,.txt,.srt"
+                    disabled={isLoading}
                   />
 
                   <div className="space-y-3">
@@ -187,10 +267,11 @@ export default function Home() {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isLoading}
                   />
                 </div>
 
-                {selectedFile && (
+                {selectedFile && !isLoading && (
                   <div className="mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <p className="text-sm font-semibold text-foreground">
                       ✓ الملف المختار:
@@ -201,6 +282,26 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground mt-1">
                       الحجم: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
+                  </div>
+                )}
+
+                {/* Progress Bar */}
+                {isLoading && (
+                  <div className="mt-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-foreground">
+                        {status === "uploading" ? "جاري الرفع..." : "جاري الترجمة..."}
+                      </p>
+                      <p className="text-sm font-semibold text-accent">
+                        {Math.round(progress)}%
+                      </p>
+                    </div>
+                    <div className="w-full h-3 bg-card rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-accent to-accent/70 transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -219,7 +320,7 @@ export default function Home() {
                   <label className="text-sm font-medium text-foreground">
                     لغة المصدر
                   </label>
-                  <Select value={sourceLanguage} onValueChange={setSourceLanguage}>
+                  <Select value={sourceLanguage} onValueChange={setSourceLanguage} disabled={isLoading}>
                     <SelectTrigger className="bg-card border-border/50">
                       <SelectValue />
                     </SelectTrigger>
@@ -238,7 +339,7 @@ export default function Home() {
                   <label className="text-sm font-medium text-foreground">
                     لغة الهدف
                   </label>
-                  <Select value={targetLanguage} onValueChange={setTargetLanguage}>
+                  <Select value={targetLanguage} onValueChange={setTargetLanguage} disabled={isLoading}>
                     <SelectTrigger className="bg-card border-border/50">
                       <SelectValue />
                     </SelectTrigger>
@@ -255,10 +356,20 @@ export default function Home() {
                 {/* Translate Button */}
                 <Button
                   className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-8"
-                  disabled={!selectedFile}
+                  disabled={!selectedFile || isLoading}
+                  onClick={handleTranslate}
                 >
-                  <Zap className="w-4 h-4 mr-2" />
-                  ابدأ الترجمة
+                  {isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin mr-2" />
+                      جاري المعالجة...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 mr-2" />
+                      ابدأ الترجمة
+                    </>
+                  )}
                 </Button>
 
                 {/* History Button */}
@@ -266,6 +377,7 @@ export default function Home() {
                   variant="outline"
                   className="w-full border-border/50 hover:bg-card"
                   onClick={() => window.location.href = '/history'}
+                  disabled={isLoading}
                 >
                   <History className="w-4 h-4 mr-2" />
                   السجل
