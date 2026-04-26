@@ -3,13 +3,38 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
-import { createTranslation, getUserTranslations, getTranslationById, updateTranslation, createUploadedFile, getUserUploadedFiles } from "./db";
-    import { invokeLLM } from "./_core/llm";
-    import { smartChunk, processJsonFile } from "./fileProcessors";
-import { storagePut, storageGet } from "./storage";
+import {
+  createTranslation,
+  getUserTranslations,
+  getTranslationById,
+  updateTranslation,
+  createUploadedFile,
+  getUserUploadedFiles,
+  getDb,
+} from "./db";
+import { storagePut, storageGetSignedUrl } from "./storage";
 import { eq } from "drizzle-orm";
 import { translations } from "../drizzle/schema";
-import { getDb } from "./db";
+import { runTranslationPipeline } from "./translationPipeline";
+
+const xenobladeOptionsSchema = z
+  .object({
+    preserveXenoTags: z.boolean().optional(),
+    preserveSystemTags: z.boolean().optional(),
+    preserveMLTags: z.boolean().optional(),
+    excludeJapanese: z.boolean().optional(),
+    preserveFormatting: z.boolean().optional(),
+  })
+  .optional();
+
+const MIME_BY_TYPE: Record<string, string> = {
+  json: "application/json",
+  json_xenoblade: "application/json",
+  srt: "application/x-subrip",
+  txt: "text/plain",
+  epub: "application/epub+zip",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
 
 export const appRouter = router({
   system: systemRouter,
@@ -18,9 +43,7 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
@@ -36,97 +59,91 @@ export const appRouter = router({
           fileContent: z.string(),
           fileName: z.string(),
           fileType: z.string().optional(),
+          chunkSize: z.number().int().positive().max(2000).optional(),
+          xenoblade: xenobladeOptionsSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const translation = await createTranslation({
+          userId: ctx.user.id,
+          uploadedFileId: input.uploadedFileId,
+          sourceLanguage: input.sourceLanguage,
+          targetLanguage: input.targetLanguage,
+          status: "processing",
+          progress: 0,
+          totalChunks: 0,
+          processedChunks: 0,
+        });
+
         try {
-          // إنشاء سجل الترجمة
-          const translation = await createTranslation({
-            userId: ctx.user.id,
-            uploadedFileId: input.uploadedFileId,
+          const result = await runTranslationPipeline(input.fileContent, {
             sourceLanguage: input.sourceLanguage,
             targetLanguage: input.targetLanguage,
-            status: "processing",
-            progress: 0,
-            totalChunks: 0,
-            processedChunks: 0,
-          });
-
-          // تقسيم النص الذكي
-          const chunks = smartChunk(input.fileContent, 500);
-          
-          // تحديث عدد الأجزاء
-          await updateTranslation(translation.id, {
-            totalChunks: chunks.length,
-          });
-
-          // بدء عملية الترجمة (يمكن جعلها async في المستقبل)
-          const translatedChunks: string[] = [];
-
-          for (let i = 0; i < chunks.length; i++) {
-            try {
-              const response = await invokeLLM({
-                messages: [
-                  {
-                    role: "system",
-                    content: `أنت مترجم احترافي. قم بترجمة النص التالي من ${input.sourceLanguage} إلى ${input.targetLanguage} مع الحفاظ على المعنى والأسلوب.` as any,
-                  },
-                  {
-                    role: "user",
-                    content: chunks[i] as any,
-                  },
-                ],
-              });
-
-              const translatedText = typeof response.choices[0]?.message?.content === 'string' ? response.choices[0].message.content : chunks[i];
-              translatedChunks.push(translatedText);
-
-              // تحديث التقدم
-              const progress = ((i + 1) / chunks.length) * 100;
+            fileName: input.fileName,
+            fileType: input.fileType,
+            chunkSize: input.chunkSize,
+            xenoblade: input.xenoblade,
+            onProgress: async (processed, total) => {
+              const progress = total === 0 ? 100 : (processed / total) * 100;
               await updateTranslation(translation.id, {
                 progress,
-                processedChunks: i + 1,
+                processedChunks: processed,
+                totalChunks: total,
               });
-            } catch (error) {
-              console.error(`Error translating chunk ${i}:`, error);
-              translatedChunks.push(chunks[i]); // استخدم النص الأصلي في حالة الخطأ
-            }
-          }
+            },
+          });
 
-          // إعادة بناء النص المترجم
-          const translatedContent = translatedChunks.join("\n\n");
+          const baseName = input.fileName.replace(/\.[^.]+$/, "");
+          const ext = input.fileName.split(".").pop() || "txt";
+          const translatedFileName = `${baseName}_${input.targetLanguage}.${ext}`;
+          const mime = MIME_BY_TYPE[result.type] ?? "text/plain";
+          const { url: translatedFileUrl, key: translatedFileKey } =
+            await storagePut(
+              `translations/${ctx.user.id}/${translatedFileName}`,
+              result.output,
+              mime
+            );
 
-          // حفظ الملف المترجم في S3
-          const translatedFileName = `${input.fileName.replace(/\.[^.]+$/, "")}_${input.targetLanguage}.${input.fileName.split(".").pop()}`;
-          const { url: translatedFileUrl, key: translatedFileKey } = await storagePut(
-            `translations/${ctx.user.id}/${translatedFileName}`,
-            translatedContent,
-            "text/plain"
-          );
-
-          // تحديث سجل الترجمة
           await updateTranslation(translation.id, {
             status: "completed",
             progress: 100,
             translatedFileUrl,
             translatedFileKey,
+            totalChunks: result.totalChunks,
+            processedChunks: result.processedChunks,
             completedAt: new Date(),
+            errorMessage:
+              result.failedChunks > 0
+                ? `${result.failedChunks} جزء فشلت ترجمته واستُخدم النص الأصلي`
+                : null,
           });
 
           return {
             id: translation.id,
             status: "completed",
             translatedFileUrl,
+            totalChunks: result.totalChunks,
+            failedChunks: result.failedChunks,
           };
         } catch (error) {
-          console.error("Translation error:", error);
-          throw new Error("فشلت عملية الترجمة");
+          const message =
+            error instanceof Error ? error.message : "فشلت عملية الترجمة";
+          console.error("Translation pipeline error:", error);
+          await updateTranslation(translation.id, {
+            status: "failed",
+            errorMessage: message,
+          });
+          throw new Error(message);
         }
       }),
 
     // الحصول على قائمة الترجمات
     list: protectedProcedure.query(async ({ ctx }) => {
-      return getUserTranslations(ctx.user.id);
+      const items = await getUserTranslations(ctx.user.id);
+      return items.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
     }),
 
     // الحصول على تفاصيل ترجمة واحدة
@@ -140,7 +157,7 @@ export const appRouter = router({
         return translation;
       }),
 
-    // الحصول على رابط التنزيل
+    // الحصول على رابط التنزيل (signed URL مباشر إن أمكن)
     download: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
@@ -148,14 +165,39 @@ export const appRouter = router({
         if (!translation || translation.userId !== ctx.user.id) {
           throw new Error("غير مصرح");
         }
-
         if (!translation.translatedFileKey) {
           throw new Error("الملف المترجم غير متوفر");
         }
-
-        const { url } = await storageGet(translation.translatedFileKey);
-        return { url };
+        try {
+          const url = await storageGetSignedUrl(translation.translatedFileKey);
+          return { url };
+        } catch (error) {
+          console.warn("Falling back to proxy URL:", error);
+          return {
+            url:
+              translation.translatedFileUrl ??
+              `/manus-storage/${translation.translatedFileKey}`,
+          };
+        }
       }),
+
+    // إحصائيات الترجمات
+    stats: protectedProcedure.query(async ({ ctx }) => {
+      const items = await getUserTranslations(ctx.user.id);
+      const counters = {
+        total: items.length,
+        completed: 0,
+        processing: 0,
+        failed: 0,
+        pending: 0,
+        paused: 0,
+      };
+      for (const t of items) {
+        const key = t.status as keyof typeof counters;
+        if (key in counters) counters[key] += 1;
+      }
+      return counters;
+    }),
 
     // حذف ترجمة
     delete: protectedProcedure
@@ -165,12 +207,9 @@ export const appRouter = router({
         if (!translation || translation.userId !== ctx.user.id) {
           throw new Error("غير مصرح");
         }
-
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-
         await db.delete(translations).where(eq(translations.id, input.id));
-
         return { success: true };
       }),
   }),
@@ -188,14 +227,11 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         try {
-          // حفظ الملف في S3
           const { url: fileUrl, key: fileKey } = await storagePut(
             `uploads/${ctx.user.id}/${input.fileName}`,
             input.fileContent,
             "application/octet-stream"
           );
-
-          // حفظ معلومات الملف في قاعدة البيانات
           const uploadedFile = await createUploadedFile({
             userId: ctx.user.id,
             fileName: input.fileName,
@@ -204,7 +240,6 @@ export const appRouter = router({
             fileKey,
             fileUrl,
           });
-
           return uploadedFile;
         } catch (error) {
           console.error("File upload error:", error);

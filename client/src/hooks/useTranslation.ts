@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import type { TranslationSettings } from "@/components/XenobladeSettings";
 
 interface TranslationState {
   isLoading: boolean;
@@ -7,16 +8,23 @@ interface TranslationState {
   status: "idle" | "uploading" | "translating" | "completed" | "error";
   error: string | null;
   translatedFileUrl: string | null;
+  translationId: number | null;
+  failedChunks: number;
 }
 
+const INITIAL_STATE: TranslationState = {
+  isLoading: false,
+  progress: 0,
+  status: "idle",
+  error: null,
+  translatedFileUrl: null,
+  translationId: null,
+  failedChunks: 0,
+};
+
 export function useTranslation() {
-  const [state, setState] = useState<TranslationState>({
-    isLoading: false,
-    progress: 0,
-    status: "idle",
-    error: null,
-    translatedFileUrl: null,
-  });
+  const [state, setState] = useState<TranslationState>(INITIAL_STATE);
+  const utils = trpc.useUtils();
 
   const uploadFileMutation = trpc.file.upload.useMutation();
   const createTranslationMutation = trpc.translation.create.useMutation();
@@ -25,42 +33,83 @@ export function useTranslation() {
     async (
       file: File,
       sourceLanguage: string,
-      targetLanguage: string
+      targetLanguage: string,
+      settings?: TranslationSettings
     ) => {
       try {
         setState({
+          ...INITIAL_STATE,
           isLoading: true,
-          progress: 0,
           status: "uploading",
-          error: null,
-          translatedFileUrl: null,
+          progress: 5,
         });
 
-        // قراءة محتوى الملف
         const fileContent = await file.text();
         const fileType = file.name.split(".").pop()?.toLowerCase() || "";
 
-        // رفع الملف
         const uploadedFile = await uploadFileMutation.mutateAsync({
           fileName: file.name,
           fileType,
           fileContent,
         });
 
-        setState((prev) => ({
+        setState(prev => ({
           ...prev,
-          progress: 30,
+          progress: 15,
           status: "translating",
         }));
 
-        // بدء الترجمة
-        const translation = await createTranslationMutation.mutateAsync({
-          uploadedFileId: uploadedFile.id,
-          sourceLanguage,
-          targetLanguage,
-          fileContent,
-          fileName: file.name,
-        });
+        // Poll the translation row while the mutation is in-flight to surface
+        // server-side progress to the UI.
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+        const translatePromise = createTranslationMutation
+          .mutateAsync({
+            uploadedFileId: uploadedFile.id,
+            sourceLanguage,
+            targetLanguage,
+            fileContent,
+            fileName: file.name,
+            fileType,
+            chunkSize: settings?.chunkSize,
+            xenoblade: settings
+              ? {
+                  preserveXenoTags: settings.preserveXenoTags,
+                  preserveSystemTags: settings.preserveSystemTags,
+                  preserveMLTags: settings.preserveMLTags,
+                  excludeJapanese: settings.excludeJapanese,
+                  preserveFormatting: settings.preserveFormatting,
+                }
+              : undefined,
+          })
+          .finally(() => {
+            if (pollTimer) clearInterval(pollTimer);
+          });
+
+        // We don't have the translation id yet — list-poll for the latest pending one.
+        pollTimer = setInterval(async () => {
+          try {
+            const list = await utils.translation.list.fetch();
+            const inProgress = list.find(
+              t =>
+                t.status === "processing" &&
+                t.uploadedFileId === uploadedFile.id
+            );
+            if (inProgress) {
+              setState(prev => ({
+                ...prev,
+                progress: Math.max(
+                  prev.progress,
+                  Math.round(inProgress.progress) || 15
+                ),
+              }));
+            }
+          } catch {
+            /* ignore polling errors */
+          }
+        }, 1500);
+
+        const translation = await translatePromise;
 
         setState({
           isLoading: false,
@@ -68,35 +117,30 @@ export function useTranslation() {
           status: "completed",
           error: null,
           translatedFileUrl: translation.translatedFileUrl,
+          translationId: translation.id,
+          failedChunks: translation.failedChunks ?? 0,
         });
+
+        utils.translation.list.invalidate();
+        utils.translation.stats.invalidate();
 
         return translation;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "حدث خطأ في الترجمة";
-
         setState({
-          isLoading: false,
-          progress: 0,
+          ...INITIAL_STATE,
           status: "error",
           error: errorMessage,
-          translatedFileUrl: null,
         });
-
         throw error;
       }
     },
-    [uploadFileMutation, createTranslationMutation]
+    [uploadFileMutation, createTranslationMutation, utils]
   );
 
   const reset = useCallback(() => {
-    setState({
-      isLoading: false,
-      progress: 0,
-      status: "idle",
-      error: null,
-      translatedFileUrl: null,
-    });
+    setState(INITIAL_STATE);
   }, []);
 
   return {

@@ -1,39 +1,89 @@
-import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { AlertCircle, Settings } from "lucide-react";
 
 interface XenobladeSettingsProps {
-  onSettingsChange?: (settings: XenobladeTranslationSettings) => void;
+  onSettingsChange?: (settings: TranslationSettings) => void;
   isOpen?: boolean;
 }
 
-export interface XenobladeTranslationSettings {
+export interface TranslationSettings {
   preserveXenoTags: boolean;
   preserveSystemTags: boolean;
   preserveMLTags: boolean;
   excludeJapanese: boolean;
   preserveFormatting: boolean;
+  /** Maximum words per chunk for plain text/SRT/EPUB pipelines. */
+  chunkSize: number;
 }
 
-const DEFAULT_SETTINGS: XenobladeTranslationSettings = {
+// Backwards-compat alias for older imports.
+export type XenobladeTranslationSettings = TranslationSettings;
+
+export const DEFAULT_SETTINGS: TranslationSettings = {
   preserveXenoTags: true,
   preserveSystemTags: true,
   preserveMLTags: true,
   excludeJapanese: true,
   preserveFormatting: true,
+  chunkSize: 500,
 };
 
-export function XenobladeSettings({ onSettingsChange, isOpen = false }: XenobladeSettingsProps) {
-  const [settings, setSettings] = useState<XenobladeTranslationSettings>(DEFAULT_SETTINGS);
+const STORAGE_KEY = "translation-settings:v1";
+
+function loadSettings(): TranslationSettings {
+  if (typeof window === "undefined") return DEFAULT_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<TranslationSettings>;
+    return { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function saveSettings(settings: TranslationSettings) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function useTranslationSettings() {
+  const [settings, setSettings] = useState<TranslationSettings>(loadSettings);
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
+  return { settings, setSettings };
+}
+
+export function XenobladeSettings({
+  onSettingsChange,
+  isOpen = false,
+}: XenobladeSettingsProps) {
+  const { settings, setSettings } = useTranslationSettings();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const handleSettingChange = (key: keyof XenobladeTranslationSettings, value: boolean) => {
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings);
-    onSettingsChange?.(newSettings);
+  useEffect(() => {
+    onSettingsChange?.(settings);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
+  const handleToggle = (key: keyof TranslationSettings, value: boolean) => {
+    setSettings({ ...settings, [key]: value });
   };
 
   if (!isOpen) {
@@ -42,14 +92,16 @@ export function XenobladeSettings({ onSettingsChange, isOpen = false }: Xenoblad
 
   return (
     <div className="space-y-4">
-      <Card className="border-blue-500/30 bg-blue-950/20">
+      <Card className="border-accent/30 bg-card/50">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-blue-400" />
+            <Settings className="h-5 w-5 text-accent" />
             <div>
-              <CardTitle className="text-lg">إعدادات Xenoblade Chronicles</CardTitle>
+              <CardTitle className="text-lg">
+                إعدادات الترجمة المتقدمة
+              </CardTitle>
               <CardDescription>
-                تخصيص معالجة ملفات الترجمة للحفاظ على العلامات والتنسيق
+                خيارات معالجة ملفات Xenoblade Chronicles وتخصيص حجم الأجزاء
               </CardDescription>
             </div>
           </div>
@@ -57,125 +109,147 @@ export function XenobladeSettings({ onSettingsChange, isOpen = false }: Xenoblad
         <CardContent className="space-y-6">
           {/* القسم الأساسي */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm text-gray-300">الإعدادات الأساسية</h3>
+            <h3 className="font-semibold text-sm text-muted-foreground">
+              حماية العلامات التقنية
+            </h3>
 
-            <div className="flex items-center space-x-3 space-x-reverse">
+            <div className="flex items-center gap-3">
               <Checkbox
                 id="preserve-xeno"
                 checked={settings.preserveXenoTags}
-                onCheckedChange={(checked) =>
-                  handleSettingChange("preserveXenoTags", checked as boolean)
+                onCheckedChange={checked =>
+                  handleToggle("preserveXenoTags", checked as boolean)
                 }
               />
               <Label htmlFor="preserve-xeno" className="cursor-pointer">
                 <div className="font-medium">الحفاظ على علامات XENO</div>
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-muted-foreground">
                   حماية علامات مثل [XENO:wait] و [XENO:del] من الترجمة
                 </div>
               </Label>
             </div>
 
-            <div className="flex items-center space-x-3 space-x-reverse">
+            <div className="flex items-center gap-3">
               <Checkbox
                 id="preserve-system"
                 checked={settings.preserveSystemTags}
-                onCheckedChange={(checked) =>
-                  handleSettingChange("preserveSystemTags", checked as boolean)
+                onCheckedChange={checked =>
+                  handleToggle("preserveSystemTags", checked as boolean)
                 }
               />
               <Label htmlFor="preserve-system" className="cursor-pointer">
                 <div className="font-medium">الحفاظ على علامات System</div>
-                <div className="text-xs text-gray-400">
-                  حماية علامات مثل [System:Color] و [System:PageBreak]
+                <div className="text-xs text-muted-foreground">
+                  حماية [System:Color] و [System:PageBreak]
                 </div>
               </Label>
             </div>
 
-            <div className="flex items-center space-x-3 space-x-reverse">
+            <div className="flex items-center gap-3">
               <Checkbox
                 id="preserve-ml"
                 checked={settings.preserveMLTags}
-                onCheckedChange={(checked) =>
-                  handleSettingChange("preserveMLTags", checked as boolean)
+                onCheckedChange={checked =>
+                  handleToggle("preserveMLTags", checked as boolean)
                 }
               />
               <Label htmlFor="preserve-ml" className="cursor-pointer">
                 <div className="font-medium">الحفاظ على علامات ML</div>
-                <div className="text-xs text-gray-400">
-                  حماية علامات مثل [ML:icon] و [ML:space] من الترجمة
+                <div className="text-xs text-muted-foreground">
+                  حماية [ML:icon] و [ML:space] من الترجمة
                 </div>
               </Label>
             </div>
           </div>
 
           {/* القسم المتقدم */}
-          <div className="space-y-4 border-t border-gray-700 pt-4">
+          <div className="space-y-4 border-t border-border/50 pt-4">
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-sm font-medium text-accent hover:opacity-80 transition-colors"
             >
               {showAdvanced ? "▼" : "▶"} الإعدادات المتقدمة
             </button>
 
             {showAdvanced && (
-              <div className="space-y-4 pl-4">
-                <div className="flex items-center space-x-3 space-x-reverse">
+              <div className="space-y-4 ps-4">
+                <div className="flex items-center gap-3">
                   <Checkbox
                     id="exclude-japanese"
                     checked={settings.excludeJapanese}
-                    onCheckedChange={(checked) =>
-                      handleSettingChange("excludeJapanese", checked as boolean)
+                    onCheckedChange={checked =>
+                      handleToggle("excludeJapanese", checked as boolean)
                     }
                   />
                   <Label htmlFor="exclude-japanese" className="cursor-pointer">
                     <div className="font-medium">استبعاد النصوص اليابانية</div>
-                    <div className="text-xs text-gray-400">
-                      عدم ترجمة النصوص المكتوبة بالأحرف اليابانية
+                    <div className="text-xs text-muted-foreground">
+                      تجاهل النصوص المكتوبة بالأحرف اليابانية تلقائياً
                     </div>
                   </Label>
                 </div>
 
-                <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="flex items-center gap-3">
                   <Checkbox
                     id="preserve-formatting"
                     checked={settings.preserveFormatting}
-                    onCheckedChange={(checked) =>
-                      handleSettingChange("preserveFormatting", checked as boolean)
+                    onCheckedChange={checked =>
+                      handleToggle("preserveFormatting", checked as boolean)
                     }
                   />
-                  <Label htmlFor="preserve-formatting" className="cursor-pointer">
+                  <Label
+                    htmlFor="preserve-formatting"
+                    className="cursor-pointer"
+                  >
                     <div className="font-medium">الحفاظ على التنسيق</div>
-                    <div className="text-xs text-gray-400">
+                    <div className="text-xs text-muted-foreground">
                       الحفاظ على المسافات والفواصل والأسطر الجديدة
                     </div>
                   </Label>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="chunk-size" className="font-medium">
+                    حجم الجزء (كلمة): {settings.chunkSize}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    عدد الكلمات في كل جزء يُرسل إلى نموذج الترجمة. القيمة الأصغر
+                    أكثر دقة لكنها أبطأ.
+                  </p>
+                  <Slider
+                    id="chunk-size"
+                    min={100}
+                    max={1500}
+                    step={50}
+                    value={[settings.chunkSize]}
+                    onValueChange={([v]) =>
+                      setSettings({ ...settings, chunkSize: v })
+                    }
+                  />
                 </div>
               </div>
             )}
           </div>
 
           {/* تنبيه المعلومات */}
-          <div className="flex gap-3 rounded-lg bg-amber-950/30 p-3 border border-amber-700/30">
-            <AlertCircle className="h-5 w-5 text-amber-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-200">
-              <p className="font-medium mb-1">ملاحظة مهمة:</p>
+          <div className="flex gap-3 rounded-lg bg-amber-950/20 dark:bg-amber-950/30 p-3 border border-amber-700/20">
+            <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-700 dark:text-amber-200">
+              <p className="font-medium mb-1">ملاحظة:</p>
               <p>
-                هذه الإعدادات تضمن الحفاظ على جميع العلامات التقنية والتنسيق الأصلي في ملفات
-                Xenoblade Chronicles. يُنصح بتفعيل جميع الخيارات للحصول على أفضل النتائج.
+                يُنصح بتفعيل جميع خيارات الحماية للحصول على أفضل النتائج عند
+                ترجمة ملفات Xenoblade Chronicles. يُحفظ هذا الإعدادات في متصفحك
+                تلقائياً.
               </p>
             </div>
           </div>
 
-          {/* زر إعادة التعيين */}
           <Button
             variant="outline"
-            onClick={() => {
-              setSettings(DEFAULT_SETTINGS);
-              onSettingsChange?.(DEFAULT_SETTINGS);
-            }}
+            onClick={() => setSettings(DEFAULT_SETTINGS)}
             className="w-full"
           >
-            إعادة تعيين الإعدادات الافتراضية
+            إعادة الإعدادات الافتراضية
           </Button>
         </CardContent>
       </Card>
@@ -183,14 +257,17 @@ export function XenobladeSettings({ onSettingsChange, isOpen = false }: Xenoblad
   );
 }
 
-export function getXenobladeSettingsDescription(settings: XenobladeTranslationSettings): string {
-  const enabled = [];
-
+export function getSettingsDescription(settings: TranslationSettings): string {
+  const enabled: string[] = [];
   if (settings.preserveXenoTags) enabled.push("علامات XENO");
   if (settings.preserveSystemTags) enabled.push("علامات System");
   if (settings.preserveMLTags) enabled.push("علامات ML");
   if (settings.excludeJapanese) enabled.push("استبعاد اليابانية");
   if (settings.preserveFormatting) enabled.push("الحفاظ على التنسيق");
-
-  return `الحماية المفعلة: ${enabled.join("، ")}`;
+  return enabled.length > 0
+    ? `الحماية المفعلة: ${enabled.join("، ")}`
+    : "بدون حماية إضافية";
 }
+
+// Backwards-compat alias
+export const getXenobladeSettingsDescription = getSettingsDescription;

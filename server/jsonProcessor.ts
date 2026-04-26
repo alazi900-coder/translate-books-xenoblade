@@ -16,161 +16,58 @@ interface TranslatableContent {
   isTranslatable: boolean;
 }
 
-// قائمة المفاتيح التقنية التي لا تُترجم
+// قائمة المفاتيح التقنية الأساسية التي يندر أن تحوي نصاً قابلاً للترجمة.
+// نتجنّب المفاتيح الشائعة مثل "value" أو "text" لأنها تحمل النصوص في معظم
+// تنسيقات الترجمة الفعلية.
 const TECHNICAL_KEYS = new Set([
   "id",
-  "key",
-  "code",
-  "type",
-  "status",
+  "uuid",
+  "guid",
+  "hash",
   "version",
   "timestamp",
-  "date",
+  "createdat",
+  "updatedat",
   "url",
   "href",
   "src",
-  "path",
-  "hash",
-  "uuid",
-  "guid",
-  "index",
-  "count",
-  "total",
-  "value",
-  "amount",
-  "price",
-  "cost",
-  "quantity",
-  "width",
-  "height",
-  "x",
-  "y",
-  "z",
+  "icon",
+  "image",
+  "thumbnail",
   "color",
   "hex",
   "rgb",
   "rgba",
   "opacity",
   "alpha",
-  "enabled",
-  "disabled",
-  "visible",
-  "hidden",
-  "active",
-  "inactive",
-  "default",
+  "width",
+  "height",
+  "x",
+  "y",
+  "z",
   "min",
   "max",
   "step",
   "scale",
-  "rotation",
-  "position",
-  "size",
-  "offset",
-  "margin",
-  "padding",
-  "border",
-  "shadow",
-  "filter",
-  "transform",
-  "animation",
   "duration",
   "delay",
-  "easing",
-  "loop",
-  "repeat",
-  "speed",
   "fps",
-  "quality",
-  "format",
+  "bitrate",
   "encoding",
   "compression",
   "resolution",
-  "bitrate",
-  "sample_rate",
+  "channel",
   "channels",
-  "volume",
-  "pan",
-  "equalizer",
-  "effect",
-  "plugin",
-  "module",
-  "component",
-  "class",
-  "interface",
-  "enum",
-  "constant",
-  "variable",
-  "function",
-  "method",
-  "property",
-  "attribute",
-  "element",
-  "node",
-  "parent",
-  "child",
-  "sibling",
-  "namespace",
-  "package",
-  "import",
-  "export",
-  "require",
-  "module_name",
-  "class_name",
-  "function_name",
-  "variable_name",
-  "event",
-  "listener",
-  "handler",
-  "callback",
-  "promise",
-  "async",
-  "await",
-  "yield",
-  "return",
-  "throw",
-  "try",
-  "catch",
-  "finally",
-  "if",
-  "else",
-  "switch",
-  "case",
-  "default",
-  "for",
-  "while",
-  "do",
-  "break",
-  "continue",
-  "goto",
-  "label",
-  "operator",
-  "operand",
-  "expression",
-  "statement",
-  "block",
-  "scope",
-  "context",
-  "this",
-  "self",
-  "super",
-  "static",
-  "final",
-  "abstract",
-  "interface",
-  "extends",
-  "implements",
-  "instanceof",
-  "typeof",
-  "new",
-  "delete",
-  "void",
-  "null",
-  "undefined",
-  "true",
-  "false",
-  "nan",
-  "infinity",
+  "format",
+  "mime",
+  "filepath",
+  "filename",
+  "extension",
+  "tagid",
+  "objectid",
+  "ref",
+  "$ref",
+  "_id",
 ]);
 
 // أنماط النصوص التقنية التي يجب الحفاظ عليها
@@ -207,8 +104,8 @@ export function extractJsonStrings(
 
   const result: TranslatableContent[] = [];
   const excludeSet = new Set<string>();
-  excludeKeys.forEach((key) => excludeSet.add(key));
-  TECHNICAL_KEYS.forEach((key) => excludeSet.add(key));
+  excludeKeys.forEach(key => excludeSet.add(key));
+  TECHNICAL_KEYS.forEach(key => excludeSet.add(key));
 
   function traverse(obj: any, currentPath: string, depth: number): void {
     if (depth > nestedDepth) return;
@@ -368,9 +265,9 @@ export function preserveFormatTags(text: string): {
   const tags: Array<{ pattern: string; index: number }> = [];
   let processedText = text;
 
-  TECHNICAL_PATTERNS.forEach((pattern) => {
+  TECHNICAL_PATTERNS.forEach(pattern => {
     const matches = Array.from(text.matchAll(pattern));
-    matches.forEach((match) => {
+    matches.forEach(match => {
       if (match[0]) {
         tags.push({
           pattern: match[0],
@@ -393,7 +290,7 @@ export function restoreFormatTags(
   let result = translatedText;
 
   // إعادة إدراج العلامات التقنية إن أمكن
-  tags.forEach((tag) => {
+  tags.forEach(tag => {
     if (!result.includes(tag.pattern)) {
       result += ` ${tag.pattern}`;
     }
@@ -413,7 +310,7 @@ export function jsonToTranslatableFormat(
 
   const lines = [
     "path\tsource_text",
-    ...content.map((item) => `${item.path}\t${item.value}`),
+    ...content.map(item => `${item.path}\t${item.value}`),
   ];
 
   return lines.join("\n");
@@ -442,7 +339,10 @@ export function translatableFormatToJson(
 /**
  * التحقق من صحة JSON
  */
-export function validateJson(content: string): { valid: boolean; error?: string } {
+export function validateJson(content: string): {
+  valid: boolean;
+  error?: string;
+} {
   try {
     JSON.parse(content);
     return { valid: true };
