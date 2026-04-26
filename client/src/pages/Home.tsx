@@ -16,6 +16,8 @@ import {
   CheckCircle,
   Settings as SettingsIcon,
   ArrowLeftRight,
+  BookOpen,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -28,8 +30,20 @@ import {
   useTranslationSettings,
 } from "@/components/XenobladeSettings";
 
-const SUPPORTED_FORMATS = ["TXT", "SRT", "JSON", "EPUB", "DOCX"];
-const ACCEPT_ATTRIBUTE = ".epub,.docx,.txt,.srt,.json";
+const SUPPORTED_FORMATS = [
+  "TXT",
+  "SRT",
+  "VTT",
+  "JSON",
+  "EPUB",
+  "DOCX",
+  "MD",
+  "HTML",
+  "CSV",
+  "YAML",
+];
+const ACCEPT_ATTRIBUTE =
+  ".epub,.docx,.txt,.srt,.vtt,.json,.md,.markdown,.html,.htm,.xhtml,.csv,.yaml,.yml";
 const MAX_FILE_SIZE_MB = 25;
 
 function formatFileSize(bytes: number): string {
@@ -54,7 +68,9 @@ export default function Home() {
     error,
     translatedFileUrl,
     failedChunks,
+    totalChunks,
     translateFile,
+    cancelActive,
     reset,
   } = useTranslation();
 
@@ -84,7 +100,14 @@ export default function Home() {
 
   const validateAndSetFile = (file: File) => {
     const ext = file.name.split(".").pop()?.toUpperCase();
-    if (!ext || !SUPPORTED_FORMATS.includes(ext)) {
+    const aliasMap: Record<string, string> = {
+      MARKDOWN: "MD",
+      HTM: "HTML",
+      XHTML: "HTML",
+      YML: "YAML",
+    };
+    const normalizedExt = ext ? aliasMap[ext] ?? ext : "";
+    if (!normalizedExt || !SUPPORTED_FORMATS.includes(normalizedExt)) {
       toast.error(
         `صيغة غير مدعومة. الصيغ المسموحة: ${SUPPORTED_FORMATS.join(", ")}`
       );
@@ -362,7 +385,9 @@ export default function Home() {
                       <p className="text-sm font-semibold text-foreground">
                         {status === "uploading"
                           ? "جاري الرفع..."
-                          : "جاري الترجمة..."}
+                          : totalChunks > 0
+                            ? `جاري ترجمة ${totalChunks} جزء...`
+                            : "جاري الترجمة..."}
                       </p>
                       <p className="text-sm font-semibold text-accent">
                         {Math.round(progress)}%
@@ -380,6 +405,20 @@ export default function Home() {
                         style={{ width: `${progress}%` }}
                       />
                     </div>
+                    {status === "translating" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          cancelActive();
+                          toast.info("جاري إلغاء العملية...");
+                        }}
+                      >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        إلغاء العملية
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -475,6 +514,16 @@ export default function Home() {
                 >
                   <History className="w-4 h-4 mr-2" />
                   السجل
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="w-full border-border/50 hover:bg-card"
+                  onClick={() => (window.location.href = "/glossary")}
+                  disabled={isLoading}
+                >
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  القاموس
                 </Button>
               </CardContent>
             </Card>

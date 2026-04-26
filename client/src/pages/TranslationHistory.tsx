@@ -183,6 +183,13 @@ export default function TranslationHistory() {
               <Button
                 variant="outline"
                 className="border-border/50"
+                onClick={() => (window.location.href = "/glossary")}
+              >
+                القاموس
+              </Button>
+              <Button
+                variant="outline"
+                className="border-border/50"
                 onClick={() => (window.location.href = "/")}
               >
                 ترجمة جديدة

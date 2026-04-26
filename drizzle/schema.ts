@@ -61,3 +61,19 @@ export const translations = mysqlTable("translations", {
 
 export type Translation = typeof translations.$inferSelect;
 export type InsertTranslation = typeof translations.$inferInsert;
+
+// قاموس مصطلحات الترجمة (Glossary) لكل مستخدم.
+export const glossaryEntries = mysqlTable("glossary_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("user_id").notNull(),
+  term: varchar("term", { length: 255 }).notNull(),
+  translation: varchar("translation", { length: 500 }).notNull(),
+  notes: text("notes"),
+  sourceLanguage: varchar("source_language", { length: 50 }),
+  targetLanguage: varchar("target_language", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GlossaryEntry = typeof glossaryEntries.$inferSelect;
+export type InsertGlossaryEntry = typeof glossaryEntries.$inferInsert;

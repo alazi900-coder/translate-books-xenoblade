@@ -66,6 +66,12 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /** Override the default Gemini model. */
+  model?: string;
+  /** Sampling temperature (0..2). */
+  temperature?: number;
+  /** Optional AbortSignal to cancel an in-flight request. */
+  signal?: AbortSignal;
 };
 
 export type ToolCall = {
@@ -277,12 +283,19 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    model,
+    temperature,
+    signal,
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model && model.trim().length > 0 ? model : "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
+
+  if (typeof temperature === "number" && Number.isFinite(temperature)) {
+    payload.temperature = Math.max(0, Math.min(2, temperature));
+  }
 
   if (tools && tools.length > 0) {
     payload.tools = tools;
@@ -319,6 +332,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       authorization: `Bearer ${ENV.forgeApiKey}`,
     },
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok) {

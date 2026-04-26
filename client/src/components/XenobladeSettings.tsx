@@ -25,7 +25,21 @@ export interface TranslationSettings {
   preserveFormatting: boolean;
   /** Maximum words per chunk for plain text/SRT/EPUB pipelines. */
   chunkSize: number;
+  /** LLM model identifier (e.g. gemini-2.5-flash). */
+  model: string;
+  /** Sampling temperature 0..2. */
+  temperature: number;
+  /** Inject the user's glossary into translation prompts. */
+  useGlossary: boolean;
 }
+
+export const AVAILABLE_MODELS: Array<{ id: string; label: string }> = [
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (سريع و افتراضي)" },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (أعلى جودة، أبطأ)" },
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+  { id: "gpt-4o-mini", label: "GPT-4o mini" },
+  { id: "gpt-4o", label: "GPT-4o" },
+];
 
 // Backwards-compat alias for older imports.
 export type XenobladeTranslationSettings = TranslationSettings;
@@ -37,6 +51,9 @@ export const DEFAULT_SETTINGS: TranslationSettings = {
   excludeJapanese: true,
   preserveFormatting: true,
   chunkSize: 500,
+  model: "gemini-2.5-flash",
+  temperature: 0.3,
+  useGlossary: true,
 };
 
 const STORAGE_KEY = "translation-settings:v1";
@@ -226,6 +243,63 @@ export function XenobladeSettings({
                       setSettings({ ...settings, chunkSize: v })
                     }
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="model" className="font-medium">
+                    نموذج الترجمة
+                  </Label>
+                  <select
+                    id="model"
+                    value={settings.model}
+                    onChange={e =>
+                      setSettings({ ...settings, model: e.target.value })
+                    }
+                    className="w-full rounded-md border border-border/50 bg-card px-3 py-2 text-sm"
+                  >
+                    {AVAILABLE_MODELS.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="temperature" className="font-medium">
+                    درجة الإبداع (Temperature):{" "}
+                    {settings.temperature.toFixed(2)}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    قيمة منخفضة = ترجمة محافظة ومستقرة. قيمة عالية = أكثر تنوّعاً.
+                  </p>
+                  <Slider
+                    id="temperature"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={[settings.temperature]}
+                    onValueChange={([v]) =>
+                      setSettings({ ...settings, temperature: v })
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="use-glossary"
+                    checked={settings.useGlossary}
+                    onCheckedChange={checked =>
+                      handleToggle("useGlossary", checked as boolean)
+                    }
+                  />
+                  <Label htmlFor="use-glossary" className="cursor-pointer">
+                    <div className="font-medium">استخدم القاموس الخاص بي</div>
+                    <div className="text-xs text-muted-foreground">
+                      ادمج المصطلحات المحفوظة في صفحة /glossary داخل سياق
+                      الترجمة
+                    </div>
+                  </Label>
                 </div>
               </div>
             )}

@@ -143,7 +143,8 @@ function parseAttributes(attrString: string): Record<string, string> {
 }
 
 /**
- * تنظيف النص من العلامات مع الحفاظ على المعلومات
+ * تنظيف النص من العلامات مع الحفاظ على فواصل الأسطر والتبويب.
+ * نحافظ على \n و \t كما هي ونطبّق التنظيف فقط على المسافات الأفقية الزائدة.
  */
 export function cleanXenoText(text: string): string {
   let cleaned = text;
@@ -160,10 +161,11 @@ export function cleanXenoText(text: string): string {
   // إزالة علامات الإغلاق
   cleaned = cleaned.replace(XENO_TAG_PATTERNS.closingTag, "");
 
-  // تنظيف المسافات الزائدة
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
-
-  return cleaned;
+  // طيّ المسافات الأفقية المتعددة فقط (دون لمس \n و \t).
+  cleaned = cleaned.replace(/[ \u00A0]+/g, " ");
+  // تنظيف المسافات قبل/بعد فواصل الأسطر.
+  cleaned = cleaned.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n");
+  return cleaned.trim();
 }
 
 /**
