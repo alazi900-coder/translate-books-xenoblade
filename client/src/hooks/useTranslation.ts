@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import type { TranslationSettings } from "@/components/XenobladeSettings";
 
@@ -10,6 +10,7 @@ interface TranslationState {
   translatedFileUrl: string | null;
   translationId: number | null;
   failedChunks: number;
+  totalChunks: number;
 }
 
 const INITIAL_STATE: TranslationState = {
@@ -20,14 +21,35 @@ const INITIAL_STATE: TranslationState = {
   translatedFileUrl: null,
   translationId: null,
   failedChunks: 0,
+  totalChunks: 0,
 };
+
+const BINARY_EXTS = new Set(["epub", "docx"]);
+
+async function readFileAsBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, Math.min(i + chunkSize, bytes.length)) as unknown as number[]
+    );
+  }
+  return btoa(binary);
+}
 
 export function useTranslation() {
   const [state, setState] = useState<TranslationState>(INITIAL_STATE);
   const utils = trpc.useUtils();
+  const activeTranslationId = useRef<number | null>(null);
 
   const uploadFileMutation = trpc.file.upload.useMutation();
   const createTranslationMutation = trpc.translation.create.useMutation();
+  const cancelMutation = trpc.translation.cancel.useMutation();
+  const pauseMutation = trpc.translation.pause.useMutation();
+  const resumeMutation = trpc.translation.resume.useMutation();
 
   const translateFile = useCallback(
     async (
@@ -44,8 +66,11 @@ export function useTranslation() {
           progress: 5,
         });
 
-        const fileContent = await file.text();
         const fileType = file.name.split(".").pop()?.toLowerCase() || "";
+        const isBinary = BINARY_EXTS.has(fileType);
+        const fileContent = isBinary
+          ? await readFileAsBase64(file)
+          : await file.text();
 
         const uploadedFile = await uploadFileMutation.mutateAsync({
           fileName: file.name,
@@ -59,8 +84,6 @@ export function useTranslation() {
           status: "translating",
         }));
 
-        // Poll the translation row while the mutation is in-flight to surface
-        // server-side progress to the UI.
         let pollTimer: ReturnType<typeof setInterval> | null = null;
 
         const translatePromise = createTranslationMutation
@@ -72,6 +95,9 @@ export function useTranslation() {
             fileName: file.name,
             fileType,
             chunkSize: settings?.chunkSize,
+            model: settings?.model,
+            temperature: settings?.temperature,
+            useGlossary: settings?.useGlossary !== false,
             xenoblade: settings
               ? {
                   preserveXenoTags: settings.preserveXenoTags,
@@ -84,24 +110,28 @@ export function useTranslation() {
           })
           .finally(() => {
             if (pollTimer) clearInterval(pollTimer);
+            activeTranslationId.current = null;
           });
 
-        // We don't have the translation id yet — list-poll for the latest pending one.
+        // Track in-progress row so we can show progress + offer cancel.
         pollTimer = setInterval(async () => {
           try {
             const list = await utils.translation.list.fetch();
             const inProgress = list.find(
               t =>
-                t.status === "processing" &&
+                (t.status === "processing" || t.status === "paused") &&
                 t.uploadedFileId === uploadedFile.id
             );
             if (inProgress) {
+              activeTranslationId.current = inProgress.id;
               setState(prev => ({
                 ...prev,
+                translationId: inProgress.id,
                 progress: Math.max(
                   prev.progress,
                   Math.round(inProgress.progress) || 15
                 ),
+                totalChunks: inProgress.totalChunks ?? 0,
               }));
             }
           } catch {
@@ -119,6 +149,7 @@ export function useTranslation() {
           translatedFileUrl: translation.translatedFileUrl,
           translationId: translation.id,
           failedChunks: translation.failedChunks ?? 0,
+          totalChunks: translation.totalChunks ?? 0,
         });
 
         utils.translation.list.invalidate();
@@ -139,6 +170,33 @@ export function useTranslation() {
     [uploadFileMutation, createTranslationMutation, utils]
   );
 
+  const cancelActive = useCallback(async () => {
+    if (activeTranslationId.current === null) return;
+    try {
+      await cancelMutation.mutateAsync({ id: activeTranslationId.current });
+    } catch (err) {
+      console.warn("Cancel failed:", err);
+    }
+  }, [cancelMutation]);
+
+  const pauseActive = useCallback(async () => {
+    if (activeTranslationId.current === null) return;
+    try {
+      await pauseMutation.mutateAsync({ id: activeTranslationId.current });
+    } catch (err) {
+      console.warn("Pause failed:", err);
+    }
+  }, [pauseMutation]);
+
+  const resumeActive = useCallback(async () => {
+    if (activeTranslationId.current === null) return;
+    try {
+      await resumeMutation.mutateAsync({ id: activeTranslationId.current });
+    } catch (err) {
+      console.warn("Resume failed:", err);
+    }
+  }, [resumeMutation]);
+
   const reset = useCallback(() => {
     setState(INITIAL_STATE);
   }, []);
@@ -146,6 +204,9 @@ export function useTranslation() {
   return {
     ...state,
     translateFile,
+    cancelActive,
+    pauseActive,
+    resumeActive,
     reset,
   };
 }

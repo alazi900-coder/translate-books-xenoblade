@@ -1,6 +1,18 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, translations, uploadedFiles, Translation, InsertTranslation, UploadedFile, InsertUploadedFile } from "../drizzle/schema";
+import {
+  InsertUser,
+  users,
+  translations,
+  uploadedFiles,
+  Translation,
+  InsertTranslation,
+  UploadedFile,
+  InsertUploadedFile,
+  glossaryEntries,
+  GlossaryEntry,
+  InsertGlossaryEntry,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -140,4 +152,59 @@ export async function getUserUploadedFiles(userId: number): Promise<UploadedFile
   if (!db) return [];
   
   return db.select().from(uploadedFiles).where(eq(uploadedFiles.userId, userId));
+}
+
+// قاموس مصطلحات
+export async function listGlossaryEntries(
+  userId: number
+): Promise<GlossaryEntry[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(glossaryEntries)
+    .where(eq(glossaryEntries.userId, userId));
+}
+
+export async function createGlossaryEntry(
+  data: InsertGlossaryEntry
+): Promise<GlossaryEntry> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(glossaryEntries).values(data);
+  const id = result[0].insertId;
+  const created = await db
+    .select()
+    .from(glossaryEntries)
+    .where(eq(glossaryEntries.id, id as unknown as number))
+    .limit(1);
+  return created[0] as GlossaryEntry;
+}
+
+export async function updateGlossaryEntry(
+  id: number,
+  data: Partial<InsertGlossaryEntry>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(glossaryEntries).set(data).where(eq(glossaryEntries.id, id));
+}
+
+export async function deleteGlossaryEntry(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(glossaryEntries).where(eq(glossaryEntries.id, id));
+}
+
+export async function getGlossaryEntryById(
+  id: number
+): Promise<GlossaryEntry | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(glossaryEntries)
+    .where(eq(glossaryEntries.id, id))
+    .limit(1);
+  return rows[0];
 }
