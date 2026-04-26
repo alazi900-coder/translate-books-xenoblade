@@ -13,6 +13,7 @@ interface XenobladeTranslationOptions {
 
 interface XenobladeContent {
   key: string;
+  path: string;
   originalText: string;
   cleanText: string;
   tags: XenoTag[];
@@ -66,12 +67,16 @@ const XENOBLADE_TECHNICAL_KEYS = new Set([
 /**
  * استخراج علامات XENO من النص
  */
-function extractXenoTags(text: string): XenoTag[] {
+export function isJapaneseText(text: string): boolean {
+  return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(text);
+}
+
+export function extractXenoTags(text: string): XenoTag[] {
   const tags: XenoTag[] = [];
 
   // استخراج علامات XENO
   const xenoMatches = Array.from(text.matchAll(XENO_TAG_PATTERNS.xeno));
-  xenoMatches.forEach((match) => {
+  xenoMatches.forEach(match => {
     tags.push({
       type: "XENO",
       name: match[1],
@@ -83,7 +88,7 @@ function extractXenoTags(text: string): XenoTag[] {
 
   // استخراج علامات System
   const systemMatches = Array.from(text.matchAll(XENO_TAG_PATTERNS.system));
-  systemMatches.forEach((match) => {
+  systemMatches.forEach(match => {
     tags.push({
       type: "System",
       name: match[1],
@@ -95,7 +100,7 @@ function extractXenoTags(text: string): XenoTag[] {
 
   // استخراج علامات ML
   const mlMatches = Array.from(text.matchAll(XENO_TAG_PATTERNS.ml));
-  mlMatches.forEach((match) => {
+  mlMatches.forEach(match => {
     tags.push({
       type: "ML",
       name: match[1],
@@ -106,8 +111,10 @@ function extractXenoTags(text: string): XenoTag[] {
   });
 
   // استخراج علامات الإغلاق
-  const closingMatches = Array.from(text.matchAll(XENO_TAG_PATTERNS.closingTag));
-  closingMatches.forEach((match) => {
+  const closingMatches = Array.from(
+    text.matchAll(XENO_TAG_PATTERNS.closingTag)
+  );
+  closingMatches.forEach(match => {
     tags.push({
       type: "System",
       name: `/${match[1]}`,
@@ -136,9 +143,10 @@ function parseAttributes(attrString: string): Record<string, string> {
 }
 
 /**
- * تنظيف النص من العلامات مع الحفاظ على المعلومات
+ * تنظيف النص من العلامات مع الحفاظ على فواصل الأسطر والتبويب.
+ * نحافظ على \n و \t كما هي ونطبّق التنظيف فقط على المسافات الأفقية الزائدة.
  */
-function cleanXenoText(text: string): string {
+export function cleanXenoText(text: string): string {
   let cleaned = text;
 
   // إزالة علامات XENO
@@ -153,10 +161,11 @@ function cleanXenoText(text: string): string {
   // إزالة علامات الإغلاق
   cleaned = cleaned.replace(XENO_TAG_PATTERNS.closingTag, "");
 
-  // تنظيف المسافات الزائدة
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
-
-  return cleaned;
+  // طيّ المسافات الأفقية المتعددة فقط (دون لمس \n و \t).
+  cleaned = cleaned.replace(/[ \u00A0]+/g, " ");
+  // تنظيف المسافات قبل/بعد فواصل الأسطر.
+  cleaned = cleaned.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n");
+  return cleaned.trim();
 }
 
 /**
@@ -176,8 +185,8 @@ export function extractXenobladeStrings(
 
   const result: XenobladeContent[] = [];
   const excludeSet = new Set<string>();
-  XENOBLADE_TECHNICAL_KEYS.forEach((key) => excludeSet.add(key));
-  customExclusions.forEach((key) => excludeSet.add(key));
+  XENOBLADE_TECHNICAL_KEYS.forEach(key => excludeSet.add(key));
+  customExclusions.forEach(key => excludeSet.add(key));
 
   function traverse(obj: any, path: string, depth: number = 0): void {
     if (depth > 10 || obj === null || obj === undefined) return;
@@ -187,7 +196,10 @@ export function extractXenobladeStrings(
       if (obj.trim().length === 0) return;
 
       // استبعد النصوص اليابانية إذا كان مطلوباً
-      if (excludeJapanese && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(obj)) {
+      if (
+        excludeJapanese &&
+        /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(obj)
+      ) {
         return;
       }
 
@@ -201,6 +213,7 @@ export function extractXenobladeStrings(
       if (cleanText.length > 0) {
         result.push({
           key: path.split(".").pop() || "value",
+          path,
           originalText: obj,
           cleanText,
           tags,
@@ -245,10 +258,10 @@ export function reconstructXenoText(
   let result = translatedText;
 
   // إضافة العلامات في نهاية النص إذا لم تكن موجودة
-  const tagStrings = tags.map((tag) => tag.fullTag);
+  const tagStrings = tags.map(tag => tag.fullTag);
   const uniqueTagsSet = new Set(tagStrings);
   const uniqueTags: string[] = [];
-  uniqueTagsSet.forEach((tag) => uniqueTags.push(tag));
+  uniqueTagsSet.forEach(tag => uniqueTags.push(tag));
 
   for (const tag of uniqueTags) {
     if (!result.includes(tag)) {
@@ -329,11 +342,12 @@ export async function processXenobladeFile(
       metadata: {
         type: "xenoblade_json",
         totalStrings: chunks.length,
-        hasXenoTags: chunks.some((c) => c.tags.length > 0),
+        hasXenoTags: chunks.some(c => c.tags.length > 0),
         tagTypes: {
-          xeno: chunks.filter((c) => c.tags.some((t) => t.type === "XENO")).length,
-          system: chunks.filter((c) => c.tags.some((t) => t.type === "System")).length,
-          ml: chunks.filter((c) => c.tags.some((t) => t.type === "ML")).length,
+          xeno: chunks.filter(c => c.tags.some(t => t.type === "XENO")).length,
+          system: chunks.filter(c => c.tags.some(t => t.type === "System"))
+            .length,
+          ml: chunks.filter(c => c.tags.some(t => t.type === "ML")).length,
         },
         note: "معالجة متخصصة لملفات Xenoblade مع دعم علامات XENO",
       },
@@ -367,18 +381,18 @@ export function generateXenobladeReport(
   samples: Array<{ id: string; original: string; clean: string }>;
 } {
   const totalChunks = chunks.length;
-  const chunksWithTags = chunks.filter((c) => c.tags.length > 0).length;
+  const chunksWithTags = chunks.filter(c => c.tags.length > 0).length;
   const avgTextLength =
     chunks.reduce((sum, c) => sum + c.cleanText.length, 0) / totalChunks || 0;
 
   const tagCounts: Record<string, number> = {};
-  chunks.forEach((chunk) => {
-    chunk.tags.forEach((tag) => {
+  chunks.forEach(chunk => {
+    chunk.tags.forEach(tag => {
       tagCounts[tag.type] = (tagCounts[tag.type] || 0) + 1;
     });
   });
 
-  const samples = chunks.slice(0, 5).map((chunk) => ({
+  const samples = chunks.slice(0, 5).map(chunk => ({
     id: chunk.id,
     original: chunk.text,
     clean: chunk.cleanText,
@@ -410,7 +424,7 @@ export function validateXenobladeJson(content: string): {
     const warnings: string[] = [];
 
     // تحقق من وجود مفاتيح Xenoblade المعروفة
-    const hasXenobladeKeys = Object.keys(json).some((key) =>
+    const hasXenobladeKeys = Object.keys(json).some(key =>
       key.includes("bdat-bin")
     );
 
