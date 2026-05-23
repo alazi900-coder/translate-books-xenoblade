@@ -22,7 +22,7 @@ import {
 import { extractJsonStrings, reconstructJson } from "./jsonProcessor";
 import {
   extractXenobladeStrings,
-  reconstructXenobladeJson,
+  reconstructXenoText,
 } from "./xenobladeProcessor";
 import {
   CancelledError,
@@ -396,10 +396,11 @@ async function translateXenobladeJson(
 
   const byPath = new Map<
     string,
-    { text: string; tags: (typeof items)[number]["tags"] }
+    { originalText: string; text: string; tags: (typeof items)[number]["tags"] }
   >();
   items.forEach((item, idx) => {
     byPath.set(item.path, {
+      originalText: item.originalText,
       text: translated[idx] ?? item.cleanText,
       tags: item.tags,
     });
@@ -410,11 +411,6 @@ async function translateXenobladeJson(
     x.preserveSystemTags !== false ||
     x.preserveMLTags !== false;
   const out = walkAndReplaceByPath(json, "root", byPath, preserveTags);
-
-  // Reuse reconstructXenobladeJson for richer logic when preserveTags is true.
-  if (preserveTags) {
-    void reconstructXenobladeJson;
-  }
 
   return {
     type: "json_xenoblade",
@@ -432,7 +428,14 @@ async function translateXenobladeJson(
 function walkAndReplaceByPath(
   obj: unknown,
   path: string,
-  byPath: Map<string, { text: string; tags: { fullTag: string }[] }>,
+  byPath: Map<
+    string,
+    {
+      originalText: string;
+      text: string;
+      tags: ReturnType<typeof extractXenobladeStrings>[number]["tags"];
+    }
+  >,
   preserveTags: boolean
 ): unknown {
   if (obj === null || obj === undefined) return obj;
@@ -440,13 +443,7 @@ function walkAndReplaceByPath(
     const found = byPath.get(path);
     if (!found) return obj;
     if (!preserveTags || found.tags.length === 0) return found.text;
-    let result = found.text;
-    for (const tag of found.tags) {
-      if (!result.includes(tag.fullTag)) {
-        result += tag.fullTag;
-      }
-    }
-    return result;
+    return reconstructXenoText(found.originalText, found.text, found.tags);
   }
   if (Array.isArray(obj)) {
     return obj.map((item, i) =>

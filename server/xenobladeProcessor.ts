@@ -28,6 +28,9 @@ interface XenoTag {
   position: number;
 }
 
+const XENO_FULL_TAG_PATTERN =
+  /\[(?:XENO|System|ML):[^\]]+\]|\[\/[A-Za-z_:]+\]/g;
+
 /**
  * أنماط علامات Xenoblade الخاصة
  */
@@ -168,6 +171,71 @@ export function cleanXenoText(text: string): string {
   return cleaned.trim();
 }
 
+function normalizeLineBreakRepresentations(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n");
+}
+
+function splitIntoBalancedLines(text: string, targetLines: number): string {
+  const joined = normalizeLineBreakRepresentations(text)
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (targetLines <= 1 || !joined) return joined;
+  const words = joined.split(/\s+/).filter(Boolean);
+  if (words.length <= targetLines) return words.join("\n");
+  const totalChars = words.reduce((sum, word) => sum + word.length, 0);
+  const targetChars = Math.max(1, Math.ceil(totalChars / targetLines));
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (lines.length < targetLines - 1 && line && line.length + 1 + word.length > targetChars) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  while (lines.length > targetLines) {
+    const last = lines.pop();
+    if (last) lines[lines.length - 1] = `${lines[lines.length - 1]} ${last}`;
+  }
+  return lines.join("\n");
+}
+
+/**
+ * استعادة محلية مستوحاة من أداة زيلدا: تعيد تمثيلات فواصل الأسطر وتضمن بقاء
+ * علامات Xenoblade التقنية كما في الأصل قبل إخراج الملف.
+ */
+export function restoreXenoTagsAndLineBreaks(
+  originalText: string,
+  translatedText: string
+): string {
+  let result = normalizeLineBreakRepresentations(translatedText);
+  const originalLineCount = normalizeLineBreakRepresentations(originalText).split("\n").length;
+  const translatedLineCount = result.split("\n").length;
+  if (originalLineCount > 1 && translatedLineCount !== originalLineCount) {
+    result = splitIntoBalancedLines(result, originalLineCount);
+  }
+
+  const originalTags = extractXenoTags(originalText).map(tag => tag.fullTag);
+  for (const tag of originalTags) {
+    const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const originalCount = (originalText.match(new RegExp(escaped, "g")) ?? []).length;
+    const translatedCount = (result.match(new RegExp(escaped, "g")) ?? []).length;
+    for (let i = translatedCount; i < originalCount; i++) {
+      result += tag;
+    }
+  }
+
+  const allowed = new Set(originalTags);
+  result = result.replace(XENO_FULL_TAG_PATTERN, tag => (allowed.has(tag) ? tag : ""));
+  return result;
+}
+
 /**
  * استخراج محتوى قابل للترجمة من JSON مع دعم Xenoblade
  */
@@ -251,25 +319,10 @@ export function reconstructXenoText(
   tags: XenoTag[]
 ): string {
   if (tags.length === 0) {
-    return translatedText;
+    return restoreXenoTagsAndLineBreaks(originalText, translatedText);
   }
 
-  // إعادة إدراج العلامات في النص المترجم
-  let result = translatedText;
-
-  // إضافة العلامات في نهاية النص إذا لم تكن موجودة
-  const tagStrings = tags.map(tag => tag.fullTag);
-  const uniqueTagsSet = new Set(tagStrings);
-  const uniqueTags: string[] = [];
-  uniqueTagsSet.forEach(tag => uniqueTags.push(tag));
-
-  for (const tag of uniqueTags) {
-    if (!result.includes(tag)) {
-      result += ` ${tag}`;
-    }
-  }
-
-  return result;
+  return restoreXenoTagsAndLineBreaks(originalText, translatedText);
 }
 
 /**

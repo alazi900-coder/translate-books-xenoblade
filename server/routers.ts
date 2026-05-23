@@ -25,6 +25,13 @@ import {
   type GlossaryEntry,
 } from "./translationPipeline";
 import {
+  applyXenoQualitySuggestions,
+  enhanceXenoTranslations,
+  extractXenoReviewEntries,
+  scanXenoLineSplitQuality,
+  scanXenoSymbolsAndLineBreaks,
+} from "./xenobladeQuality";
+import {
   registerControl,
   disposeControl,
   cancelTranslation,
@@ -228,6 +235,99 @@ export const appRouter = router({
         } finally {
           disposeControl(translation.id);
         }
+      }),
+
+    reviewXenoblade: protectedProcedure
+      .input(
+        z.object({
+          originalContent: z.string(),
+          translatedContent: z.string(),
+          mode: z.enum(["symbols", "line-split", "ai", "all"]),
+          model: z.string().optional(),
+          temperature: z.number().min(0).max(2).optional(),
+          scope: z
+            .enum(["all", "short", "long", "with_tags", "no_arabic"])
+            .optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { entries } = extractXenoReviewEntries(
+          input.originalContent,
+          input.translatedContent
+        );
+        const scoped = entries.filter(entry => {
+          const text = entry.translation;
+          if (input.scope === "short") return text.length <= 80;
+          if (input.scope === "long") return text.length >= 180;
+          if (input.scope === "with_tags") return /\[(?:XENO|System|ML):|\[\/[A-Za-z_:]+\]/.test(text);
+          if (input.scope === "no_arabic") return !/[\u0600-\u06FF]/.test(text);
+          return true;
+        });
+
+        const issues = [];
+        if (input.mode === "symbols" || input.mode === "all") {
+          issues.push(...scanXenoSymbolsAndLineBreaks(scoped));
+        }
+        if (input.mode === "line-split" || input.mode === "all") {
+          issues.push(...scanXenoLineSplitQuality(scoped));
+        }
+        if (input.mode === "ai" || input.mode === "all") {
+          let glossary: GlossaryEntry[] | undefined;
+          try {
+            const rows = await listGlossaryEntries(ctx.user.id);
+            glossary = rows.map(e => ({
+              term: e.term,
+              translation: e.translation,
+              notes: e.notes ?? undefined,
+            }));
+          } catch (err) {
+            console.warn("Failed to load glossary for review:", err);
+          }
+          issues.push(
+            ...(await enhanceXenoTranslations(scoped.slice(0, 80), {
+              model: input.model,
+              temperature: input.temperature,
+              glossary,
+            }))
+          );
+        }
+
+        return {
+          scanned: scoped.length,
+          issues,
+        };
+      }),
+
+    applyXenobladeReview: protectedProcedure
+      .input(
+        z.object({
+          translatedContent: z.string(),
+          suggestions: z.array(
+            z.object({
+              path: z.string(),
+              suggestion: z.string(),
+            })
+          ),
+          fileName: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const translatedJson = JSON.parse(input.translatedContent);
+        const out = applyXenoQualitySuggestions(
+          translatedJson,
+          input.suggestions
+        );
+        const baseName = (input.fileName || "xenoblade_reviewed.json").replace(
+          /\.json$/i,
+          ""
+        );
+        const fileName = `${baseName}_reviewed.json`;
+        const { url, key } = await storagePut(
+          `translations/${ctx.user.id}/${fileName}`,
+          JSON.stringify(out, null, 2),
+          "application/json"
+        );
+        return { url, key, output: JSON.stringify(out, null, 2) };
       }),
 
     // الحصول على قائمة الترجمات

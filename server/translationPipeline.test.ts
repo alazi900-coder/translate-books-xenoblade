@@ -243,4 +243,25 @@ describe("runTranslationPipeline", () => {
     expect(out.lines[0].text).toContain("[T]");
     expect(out.lines[1].text).toContain("[System:End]");
   });
+
+  it("restores Xenoblade line breaks without legacy comma splitting", async () => {
+    const json = JSON.stringify({
+      line: "First part[XENO:n ]\nSecond part",
+    });
+    const result = await runTranslationPipeline(json, {
+      fileName: "messages.json",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      xenoblade: {
+        preserveXenoTags: true,
+        preserveSystemTags: true,
+        preserveMLTags: true,
+        excludeJapanese: false,
+      },
+    });
+    const out = JSON.parse(result.output);
+    expect(out.line).toContain("[XENO:n ]");
+    expect(out.line.split("\n")).toHaveLength(2);
+    expect(out.line).not.toContain("part,\n");
+  });
 });

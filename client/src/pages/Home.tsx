@@ -29,6 +29,7 @@ import {
   XenobladeSettings,
   useTranslationSettings,
 } from "@/components/XenobladeSettings";
+import { XenobladeReviewTools } from "@/components/XenobladeReviewTools";
 
 const SUPPORTED_FORMATS = [
   "TXT",
@@ -529,6 +530,8 @@ export default function Home() {
             </Card>
           </div>
         </div>
+
+        <XenobladeReviewTools />
 
         {/* Info Cards */}
         <div className="grid md:grid-cols-3 gap-4">

@@ -3,6 +3,7 @@ import {
   extractXenoTags,
   cleanXenoText,
   reconstructXenoText,
+  restoreXenoTagsAndLineBreaks,
   isJapaneseText,
   extractXenobladeStrings,
 } from "./xenobladeProcessor";
@@ -31,6 +32,23 @@ describe("reconstructXenoText", () => {
       tags
     );
     expect(out).toContain("[XENO:wait]");
+  });
+});
+
+describe("restoreXenoTagsAndLineBreaks", () => {
+  it("restores missing XENO/System/ML tags and escaped line breaks", () => {
+    const original = "Line one[XENO:n ]\nLine two [System:Color name=arts_sp]OK[/System:Color]";
+    const translated = "السطر الأول\\nالسطر الثاني جيد";
+    const out = restoreXenoTagsAndLineBreaks(original, translated);
+    expect(out).toContain("[XENO:n ]");
+    expect(out).toContain("[System:Color name=arts_sp]");
+    expect(out).toContain("[/System:Color]");
+    expect(out.split("\n")).toHaveLength(2);
+  });
+
+  it("removes hallucinated Xenoblade tags that are not in the original", () => {
+    const out = restoreXenoTagsAndLineBreaks("Hello", "مرحبا [XENO:fake]");
+    expect(out).not.toContain("[XENO:fake]");
   });
 });
 
